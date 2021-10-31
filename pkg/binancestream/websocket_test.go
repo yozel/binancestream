@@ -20,7 +20,7 @@ func Test_SubscribeRequest(t *testing.T) {
 	m := newBinanceWs()
 	err = m.connect()
 	assert.Nil(t, err)
-	go m.pollMessages()
+	go m.readPump()
 	defer m.close()
 
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)

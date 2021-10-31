@@ -62,7 +62,7 @@ func (b *BinanceStream) run() {
 	}
 	go func() {
 		for {
-			err := b.wsm.pollMessages()
+			err := b.wsm.readPump()
 			log.Printf("failed to poll: %s", err)
 			switch err {
 			case ErrClosed:

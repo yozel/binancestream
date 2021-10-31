@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"sync"
 	"time"
 
@@ -15,6 +14,9 @@ import (
 
 var (
 	debugLog *log.Logger = log.New(io.Discard, "", log.LstdFlags)
+
+	pongWait   = 10 * time.Second
+	pingPeriod = pongWait / 2
 
 	ErrWSDisconnected = fmt.Errorf("websocket disconnected")
 	ErrClosed         = fmt.Errorf("websocket manager is closed")
@@ -55,19 +57,15 @@ type binanceWs struct {
 	messages chan []byte
 	response map[uint]chan Response
 
-	pongChannel chan struct{}
-	closeCh     chan struct{}
+	closeCh chan struct{}
 }
 
 func newBinanceWs() *binanceWs {
-	m := &binanceWs{
-		messages:    make(chan []byte, 100),
-		response:    make(map[uint]chan Response),
-		pongChannel: make(chan struct{}, 1),
-		closeCh:     make(chan struct{}),
+	return &binanceWs{
+		messages: make(chan []byte, 100),
+		response: make(map[uint]chan Response),
+		closeCh:  make(chan struct{}),
 	}
-	go m.ping()
-	return m
 }
 
 func (m *binanceWs) connect() error {
@@ -81,52 +79,39 @@ func (m *binanceWs) connect() error {
 	if err != nil {
 		return fmt.Errorf("connect error: %w", err)
 	}
-	m.ws.SetPongHandler(func(appData string) error {
-		if appData == "hello" {
-			m.pongChannel <- struct{}{}
-		}
-		return nil
-	})
 	return nil
 }
 
-func (m *binanceWs) ping() {
-	for !m.closed() {
-		time.Sleep(time.Second * 5)
-		if m.ws != nil {
-			err := m.ws.WriteControl(websocket.PingMessage, []byte("hello"), time.Now().Add(time.Second*10))
-			if err != nil {
-				log.Printf("ping error: %v", err)
-			}
-			select {
-			case <-m.pongChannel:
-				debugLog.Printf("got pong")
-			case <-time.After(time.Second * 5):
-				log.Printf("ping timeout")
-				m.ws.Close()
-			}
-		}
+func (m *binanceWs) readPump() error {
+	if m.closed() {
+		return ErrClosed
 	}
-}
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				m.ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(time.Second*5))
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
-func (m *binanceWs) pollMessages() error {
+	m.ws.SetReadDeadline(time.Now().Add(pongWait))
+	m.ws.SetPongHandler(func(string) error { m.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
-		if m.closed() {
-			return ErrClosed
-		}
-		if m.ws == nil {
-			return ErrWSDisconnected
-		}
 		mtype, message, err := m.ws.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err) {
-				return ErrWSDisconnected
+			if m.closed() {
+				return ErrClosed
 			}
-			if v, ok := err.(*net.OpError); ok && v.Err.Error() == "use of closed network connection" {
-				return ErrWSDisconnected
-			}
-			log.Printf("read error: %v", err)
-			continue
+			log.Printf("readPump error %s", err)
+			m.ws.Close()
+			return ErrWSDisconnected
 		}
 		debugLog.Println("message:", string(message))
 		if mtype != websocket.TextMessage {
