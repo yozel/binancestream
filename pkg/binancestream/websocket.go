@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -54,15 +55,19 @@ type binanceWs struct {
 	messages chan []byte
 	response map[uint]chan Response
 
-	closeCh chan struct{}
+	pongChannel chan struct{}
+	closeCh     chan struct{}
 }
 
 func newBinanceWs() *binanceWs {
-	return &binanceWs{
-		messages: make(chan []byte, 100),
-		response: make(map[uint]chan Response),
-		closeCh:  make(chan struct{}),
+	m := &binanceWs{
+		messages:    make(chan []byte, 100),
+		response:    make(map[uint]chan Response),
+		pongChannel: make(chan struct{}, 1),
+		closeCh:     make(chan struct{}),
 	}
+	go m.ping()
+	return m
 }
 
 func (m *binanceWs) connect() error {
@@ -76,13 +81,41 @@ func (m *binanceWs) connect() error {
 	if err != nil {
 		return fmt.Errorf("connect error: %w", err)
 	}
+	m.ws.SetPongHandler(func(appData string) error {
+		if appData == "hello" {
+			m.pongChannel <- struct{}{}
+		}
+		return nil
+	})
 	return nil
+}
+
+func (m *binanceWs) ping() {
+	for !m.closed() {
+		time.Sleep(time.Second * 5)
+		if m.ws != nil {
+			err := m.ws.WriteControl(websocket.PingMessage, []byte("hello"), time.Now().Add(time.Second*10))
+			if err != nil {
+				log.Printf("ping error: %v", err)
+			}
+			select {
+			case <-m.pongChannel:
+				debugLog.Printf("got pong")
+			case <-time.After(time.Second * 5):
+				log.Printf("ping timeout")
+				m.ws.Close()
+			}
+		}
+	}
 }
 
 func (m *binanceWs) pollMessages() error {
 	for {
 		if m.closed() {
 			return ErrClosed
+		}
+		if m.ws == nil {
+			return ErrWSDisconnected
 		}
 		mtype, message, err := m.ws.ReadMessage()
 		if err != nil {
@@ -95,7 +128,7 @@ func (m *binanceWs) pollMessages() error {
 			log.Printf("read error: %v", err)
 			continue
 		}
-		debugLog.Println("message:", string(message)) // TODO: remove
+		debugLog.Println("message:", string(message))
 		if mtype != websocket.TextMessage {
 			log.Printf("unexpected message type mtype: %d, message: %s", mtype, message)
 			continue

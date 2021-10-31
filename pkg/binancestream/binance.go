@@ -25,16 +25,19 @@ type BinanceStream struct {
 	subscriptionsMu sync.RWMutex
 }
 
-func New(defaultHandler StreamSubscriptionHandler) (*BinanceStream, error) {
+func New(defaultHandler StreamSubscriptionHandler) *BinanceStream {
 	bs := &BinanceStream{
 		subscriptions:  make(map[string]StreamSubscriptionHandler),
 		defaultHandler: defaultHandler,
 		wsm:            newBinanceWs(),
 	}
-	return bs, bs.run()
+	bs.run()
+	return bs
 }
 
-func (b *BinanceStream) run() error {
+// asd
+
+func (b *BinanceStream) run() {
 	go func() {
 		for {
 			msg, err := b.wsm.readMessage()
@@ -48,13 +51,19 @@ func (b *BinanceStream) run() error {
 			go b.messageDispatcher(msg)
 		}
 	}()
-	err := b.wsm.connect()
-	if err != nil {
-		return fmt.Errorf("failed to connect: %s", err)
+	for {
+		err := b.wsm.connect()
+		if err != nil {
+			log.Printf("failed to connect: %s", err)
+			time.Sleep(time.Second * 5)
+			continue
+		}
+		break
 	}
 	go func() {
 		for {
-			err = b.wsm.pollMessages()
+			err := b.wsm.pollMessages()
+			log.Printf("failed to poll: %s", err)
 			switch err {
 			case ErrClosed:
 				return
@@ -79,7 +88,6 @@ func (b *BinanceStream) run() error {
 
 		}
 	}()
-	return nil
 }
 
 func (b *BinanceStream) Wait() {

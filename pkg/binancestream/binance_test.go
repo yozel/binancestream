@@ -7,9 +7,11 @@ import (
 )
 
 func TestSubscribeUnsubscribe(t *testing.T) {
+	bs := New(nil)
+	assert.NotNil(t, bs)
+	// defer bs.Close()
+
 	var err error
-	bs, err := New(nil)
-	assert.Nil(t, err)
 
 	err = bs.Subscribe("btcusdt@ticker", func(CombinedStream) {})
 	assert.NoError(t, err)

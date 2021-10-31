@@ -8,13 +8,12 @@ import (
 )
 
 func main() {
-	bs, err := binancestream.New(nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// binancestream.EnableDebugLogger()
+
+	bs := binancestream.New(nil)
 	defer bs.Close()
 
-	err = bs.Subscribe("btcusdt@kline_1m", func(cs binancestream.CombinedStream) {
+	err := bs.Subscribe("btcusdt@kline_1m", func(cs binancestream.CombinedStream) {
 		fmt.Printf("Stream name: %s, Data: %s\n", cs.Name, cs.Data)
 	})
 	if err != nil {

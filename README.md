@@ -5,11 +5,10 @@ This library handles network failures by automatically reconnecting to the webso
 
 ## Usage
 ```go
-bs, err := binancestream.New(nil)
-if err != nil {
-    log.Fatal(err)
-}
+bs := binancestream.New(nil)
 defer bs.Close()
+
+var err error
 
 err = bs.Subscribe("btcusdt@kline_1m", func(cs binancestream.CombinedStream) {
     fmt.Printf("Stream name: %s, Data: %s\n", cs.Name, cs.Data)
