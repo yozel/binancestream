@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/yozel/binancestream/pkg/binancestream"
+	"github.com/yozel/binancestream"
 )
 
 func main() {
